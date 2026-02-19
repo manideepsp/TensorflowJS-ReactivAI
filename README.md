@@ -45,19 +45,19 @@ Neural network–powered face detection, emotion classification, voice analysis,
 flowchart LR
   subgraph B[Browser / Client-Side Only]
     subgraph V[Video Pipeline]
-      Cam["Camera<br/>(getUserMedia)"] --> FD["Face Detector<br/>(MediaPipe FaceMesh via TFJS)"]
-      FD --> Crop["Face Crop + Preprocess<br/>48x48 grayscale, normalize 0..1"]
-      Crop --> EC["Emotion Classifier<br/>(Custom CNN via TensorFlow.js)"]
-      EC --> TS["Temporal Smoother<br/>(EMA)"]
+      Cam[Camera] --> FD[Face Detector]
+      FD --> Crop[Face Crop and Preprocess]
+      Crop --> EC[Emotion Classifier]
+      EC --> TS[Temporal Smoother]
     end
 
     subgraph A[Audio Pipeline]
-      Mic["Microphone<br/>(getUserMedia)"] --> AE["Audio Engine<br/>(Web Audio API: RMS + speech detect)"]
-      AE --> EE["Engagement Engine<br/>(weighted scoring)"]
+      Mic[Microphone] --> AE[Audio Engine]
+      AE --> EE[Engagement Engine]
     end
 
-    PM["Performance Monitor<br/>(FPS, latency, tensors, memory)"]
-    UI["React UI<br/>(Live dashboards)"]
+    PM[Performance Monitor]
+    UI[React UI]
 
     TS --> UI
     EE --> UI
