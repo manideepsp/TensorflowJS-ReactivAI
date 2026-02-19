@@ -43,13 +43,11 @@ Neural network–powered face detection, emotion classification, voice analysis,
 
 ```mermaid
 flowchart LR
-  %% Everything runs in the browser (no backend).
-
   subgraph B[Browser / Client-Side Only]
     subgraph V[Video Pipeline]
       Cam["Camera<br/>(getUserMedia)"] --> FD["Face Detector<br/>(MediaPipe FaceMesh via TFJS)"]
-      FD --> Crop["Face Crop + Preprocess<br/>48×48 grayscale, normalize 0..1"]
-      Crop --> EC["Emotion Classifier<br/>(Custom CNN via TFJS WebGL)"]
+      FD --> Crop["Face Crop + Preprocess<br/>48x48 grayscale, normalize 0..1"]
+      Crop --> EC["Emotion Classifier<br/>(Custom CNN via TensorFlow.js)"]
       EC --> TS["Temporal Smoother<br/>(EMA)"]
     end
 
@@ -65,10 +63,6 @@ flowchart LR
     EE --> UI
     PM --> UI
   end
-
-  %% Rendering hints
-  classDef core fill:#0b1021,stroke:#5df2d6,color:#e9edf5;
-  class FD,EC,AE,EE,TS,PM core;
 ```
 
 ---
@@ -87,7 +81,9 @@ npm install
 npm run dev
 ```
 
-Open **http://localhost:4321/TensorflowJS-ReactivAI/** — grant camera and microphone access, and you're live.
+Open **http://localhost:4321/** — grant camera and microphone access, and you're live.
+
+If you’ve configured `base: '/TensorflowJS-ReactivAI/'` for GitHub Pages and the dev server shows a blank page, try: **http://localhost:4321/TensorflowJS-ReactivAI/**
 
 ### Commands
 
@@ -230,7 +226,7 @@ It handles:
 Switch models at runtime via URL parameter:
 
 ```
-http://localhost:4321/TensorflowJS-ReactivAI/?model=emotion_model_py
+http://localhost:4321/?model=emotion_model_py
 ```
 
 ---
