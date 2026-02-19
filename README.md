@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🧠 EdgePresence
+# 🧠 Reactiv-AI
 
 ### Real-Time Emotion, Voice & Engagement Analysis — Entirely in the Browser
 
