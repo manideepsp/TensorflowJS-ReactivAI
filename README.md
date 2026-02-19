@@ -47,19 +47,19 @@ flowchart LR
 
   subgraph B[Browser / Client-Side Only]
     subgraph V[Video Pipeline]
-      Cam[Camera\n(getUserMedia)] --> FD[Face Detector\n(MediaPipe FaceMesh via TFJS)]
-      FD --> Crop[Face Crop + Preprocess\n48×48 grayscale, normalize [0,1]]
-      Crop --> EC[Emotion Classifier\n(Custom CNN via TFJS WebGL)]
-      EC --> TS[Temporal Smoother\n(EMA)]
+      Cam["Camera<br/>(getUserMedia)"] --> FD["Face Detector<br/>(MediaPipe FaceMesh via TFJS)"]
+      FD --> Crop["Face Crop + Preprocess<br/>48×48 grayscale, normalize 0..1"]
+      Crop --> EC["Emotion Classifier<br/>(Custom CNN via TFJS WebGL)"]
+      EC --> TS["Temporal Smoother<br/>(EMA)"]
     end
 
     subgraph A[Audio Pipeline]
-      Mic[Microphone\n(getUserMedia)] --> AE[Audio Engine\n(Web Audio API: RMS + speech detect)]
-      AE --> EE[Engagement Engine\n(weighted scoring)]
+      Mic["Microphone<br/>(getUserMedia)"] --> AE["Audio Engine<br/>(Web Audio API: RMS + speech detect)"]
+      AE --> EE["Engagement Engine<br/>(weighted scoring)"]
     end
 
-    PM[Performance Monitor\n(FPS, latency, tensors, memory)]
-    UI[React UI\n(Live dashboards)]
+    PM["Performance Monitor<br/>(FPS, latency, tensors, memory)"]
+    UI["React UI<br/>(Live dashboards)"]
 
     TS --> UI
     EE --> UI
