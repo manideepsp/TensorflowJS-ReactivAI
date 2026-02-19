@@ -41,37 +41,34 @@ Neural network–powered face detection, emotion classification, voice analysis,
 
 ## 🏛️ Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│                        BROWSER (Client-Side Only)                   │
-│                                                                     │
-│  ┌──────────┐    ┌────────────────┐    ┌──────────────────────┐    │
-│  │  Camera   │───▶│  Face Detector  │───▶│  Emotion Classifier  │    │
-│  │  (WebRTC) │    │  (MediaPipe     │    │  (Custom CNN,        │    │
-│  │           │    │   FaceMesh)     │    │   48×48 grayscale)   │    │
-│  └──────────┘    └────────────────┘    └──────────┬───────────┘    │
-│                                                    │                │
-│  ┌──────────┐    ┌────────────────┐               ▼                │
-│  │   Mic    │───▶│  Audio Engine   │    ┌──────────────────────┐    │
-│  │(WebAudio)│    │  (RMS Energy,   │───▶│  Engagement Engine   │    │
-│  │          │    │   Speech Detect) │    │  (Weighted Scoring)  │    │
-│  └──────────┘    └────────────────┘    └──────────┬───────────┘    │
-│                                                    │                │
-│                  ┌────────────────┐               ▼                │
-│                  │   Temporal     │    ┌──────────────────────┐    │
-│                  │   Smoother    │───▶│    React UI           │    │
-│                  │  (EMA Filter) │    │  (Live Dashboards)    │    │
-│                  └────────────────┘    └──────────────────────┘    │
-│                                                                     │
-│                  ┌────────────────┐                                 │
-│                  │  Performance   │  FPS, Latency, Tensor Count,   │
-│                  │  Monitor      │  Memory Usage                   │
-│                  └────────────────┘                                 │
-│                                                                     │
-│  ═══════════════════════════════════════════════════════════════    │
-│   All inference via TensorFlow.js WebGL 2 — GPU-accelerated        │
-│   No data leaves the browser. No backend. No API keys.             │
-└─────────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart LR
+  %% Everything runs in the browser (no backend).
+
+  subgraph B[Browser / Client-Side Only]
+    subgraph V[Video Pipeline]
+      Cam[Camera\n(getUserMedia)] --> FD[Face Detector\n(MediaPipe FaceMesh via TFJS)]
+      FD --> Crop[Face Crop + Preprocess\n48×48 grayscale, normalize [0,1]]
+      Crop --> EC[Emotion Classifier\n(Custom CNN via TFJS WebGL)]
+      EC --> TS[Temporal Smoother\n(EMA)]
+    end
+
+    subgraph A[Audio Pipeline]
+      Mic[Microphone\n(getUserMedia)] --> AE[Audio Engine\n(Web Audio API: RMS + speech detect)]
+      AE --> EE[Engagement Engine\n(weighted scoring)]
+    end
+
+    PM[Performance Monitor\n(FPS, latency, tensors, memory)]
+    UI[React UI\n(Live dashboards)]
+
+    TS --> UI
+    EE --> UI
+    PM --> UI
+  end
+
+  %% Rendering hints
+  classDef core fill:#0b1021,stroke:#5df2d6,color:#e9edf5;
+  class FD,EC,AE,EE,TS,PM core;
 ```
 
 ---
