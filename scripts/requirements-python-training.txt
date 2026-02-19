@@ -1,0 +1,5 @@
+tensorflow==2.15.0
+numpy==1.26.4
+Pillow==12.1.1
+# No tensorflowjs package needed — we use a custom pure-Python converter
+# (scripts/convert_keras_to_tfjs.py) that only requires tensorflow + numpy.

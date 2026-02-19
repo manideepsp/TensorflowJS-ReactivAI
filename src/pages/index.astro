@@ -1,0 +1,76 @@
+---
+import EmotionAnalyzer from '../components/EmotionAnalyzer';
+---
+
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<link rel="icon" type="image/svg+xml" href={`${import.meta.env.BASE_URL}favicon.svg`} />
+		<link rel="icon" href={`${import.meta.env.BASE_URL}favicon.ico`} />
+		<meta name="viewport" content="width=device-width" />
+		<meta name="generator" content={Astro.generator} />
+		<title>EdgePresence – Real-Time Emotion & Engagement Analyzer</title>
+		<link
+			rel="preconnect"
+			href="https://fonts.googleapis.com"
+		/>
+		<link
+			rel="preconnect"
+			href="https://fonts.gstatic.com"
+			crossorigin
+		/>
+		<link
+			href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap"
+			rel="stylesheet"
+		/>
+		<style>
+			:root {
+				--bg: radial-gradient(circle at 20% 20%, #0b1021, #05060f 40%, #02030a 80%);
+				--panel: rgba(255, 255, 255, 0.06);
+				--accent: #5df2d6;
+				--accent-2: #ffd166;
+				--text: #e9edf5;
+				--muted: #9ba3b5;
+			}
+
+			body {
+				margin: 0;
+				min-height: 100vh;
+				background: var(--bg);
+				color: var(--text);
+				font-family: 'Space Grotesk', 'Segoe UI', 'Inter', system-ui, sans-serif;
+				display: flex;
+				align-items: center;
+				justify-content: center;
+				padding: 32px;
+			}
+
+			.frame {
+				width: min(1200px, 100%);
+				backdrop-filter: blur(12px);
+				background: linear-gradient(135deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.02));
+				border: 1px solid rgba(255, 255, 255, 0.08);
+				border-radius: 24px;
+				padding: 28px;
+				box-shadow: 0 30px 60px rgba(0, 0, 0, 0.45);
+			}
+
+			h1 {
+				margin: 0 0 8px 0;
+				letter-spacing: -0.01em;
+			}
+
+			p.lead {
+				margin: 0 0 24px 0;
+				color: var(--muted);
+			}
+		</style>
+	</head>
+	<body>
+		<main class="frame">
+			<h1>EdgePresence</h1>
+			<p class="lead">Real-time emotion, voice, and engagement sensing—fully client-side.</p>
+			<EmotionAnalyzer client:only="react" />
+		</main>
+	</body>
+</html>

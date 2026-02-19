@@ -1,0 +1,362 @@
+---
+// Minimal face detection debug page — same Vite bundler as main app
+---
+
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>EdgePresence – Face Detection Debug</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; }
+    body { background: #111; color: #eee; font-family: monospace; padding: 16px; }
+    h1 { font-size: 18px; margin-bottom: 12px; }
+    #log { background: #1a1a2e; padding: 12px; border-radius: 8px; height: 400px; overflow-y: auto; font-size: 13px; line-height: 1.5; white-space: pre-wrap; }
+    .ok  { color: #5df2d6; }
+    .err { color: #ff6b6b; }
+    .warn{ color: #ffd166; }
+    .info{ color: #7eb8da; }
+    video  { border-radius: 8px; background: #000; }
+    canvas { border-radius: 8px; border: 1px solid #333; }
+    .row { display: flex; gap: 16px; margin: 12px 0; flex-wrap: wrap; align-items: flex-start; }
+    button { padding: 8px 16px; border: none; border-radius: 6px; background: #5df2d6; color: #111; font-weight: bold; cursor: pointer; font-size: 14px; }
+    button:hover { opacity: 0.85; }
+    button:disabled { opacity: 0.4; cursor: not-allowed; }
+    #status { padding: 8px 12px; border-radius: 6px; background: #222; margin-top: 8px; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <h1>🔍 EdgePresence Face Detection Debugger</h1>
+  <div class="row">
+    <div>
+      <h3>Camera Feed</h3>
+      <video id="video" width="320" height="240" muted playsinline></video>
+    </div>
+    <div>
+      <h3>Canvas (face crop 48×48)</h3>
+      <canvas id="crop" width="48" height="48" style="width:96px;height:96px;image-rendering:pixelated;"></canvas>
+    </div>
+    <div>
+      <h3>Draw overlay</h3>
+      <canvas id="overlay" width="320" height="240"></canvas>
+    </div>
+  </div>
+  <div class="row">
+    <button id="btnFull">▶ Run Full Test</button>
+    <button id="btnFullWithEmotion">▶ Full Test + Emotion Model</button>
+    <button id="btnSingle" disabled>🔎 Single Detect</button>
+    <button id="btnRaw" disabled>🧪 Raw estimateFaces</button>
+    <button id="btnClear">🗑 Clear Log</button>
+  </div>
+  <div id="status">Status: idle</div>
+  <h3 style="margin-top:12px;">Log</h3>
+  <div id="log"></div>
+
+  <script>
+    // ── This <script> goes through Vite bundler, same as the main app ──
+    import * as tf from '@tensorflow/tfjs';
+    import '@tensorflow/tfjs-backend-webgl';
+    import * as faceLandmarksDetection from '@tensorflow-models/face-landmarks-detection';
+
+    // Also import the emotion model loader — to reproduce the main app's init order
+    import { loadEmotionModel } from '../ml/emotionClassifier';
+
+    // DOM refs
+    const logEl      = document.getElementById('log');
+    const statusEl   = document.getElementById('status');
+    const videoEl    = document.getElementById('video');
+    const cropCanvas = document.getElementById('crop');
+    const overlay    = document.getElementById('overlay');
+    const btnFull    = document.getElementById('btnFull');
+    const btnFullEmo = document.getElementById('btnFullWithEmotion');
+    const btnSingle  = document.getElementById('btnSingle');
+    const btnRaw     = document.getElementById('btnRaw');
+    const btnClear   = document.getElementById('btnClear');
+
+    let detector = null;
+    let stream   = null;
+
+    // ── Logging helpers ──
+    function log(msg, cls = '') {
+      const ts = new Date().toLocaleTimeString();
+      const span = document.createElement('span');
+      span.className = cls;
+      span.textContent = `[${ts}] ${msg}\n`;
+      logEl.appendChild(span);
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+    function status(msg) { statusEl.textContent = 'Status: ' + msg; }
+
+    // ── Camera ──
+    async function startCamera() {
+      log('Requesting camera…', 'info');
+      status('requesting camera');
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { width: 320, height: 240, facingMode: 'user' },
+          audio: false,
+        });
+        videoEl.srcObject = stream;
+        await new Promise((resolve) => {
+          videoEl.onloadedmetadata = resolve;
+        });
+        await videoEl.play();
+        log(`✅ Camera ready – ${videoEl.videoWidth}×${videoEl.videoHeight}`, 'ok');
+        log(`   readyState = ${videoEl.readyState}`, 'info');
+        return true;
+      } catch (e) {
+        log(`❌ Camera error: ${e.message}`, 'err');
+        status('camera error');
+        return false;
+      }
+    }
+
+    // ── TF backend ──
+    async function initBackend() {
+      log('Setting up TensorFlow.js backend…', 'info');
+      status('loading tf backend');
+      try {
+        await tf.setBackend('webgl');
+        await tf.ready();
+        log(`✅ Backend: ${tf.getBackend()}`, 'ok');
+        log(`   tf version: ${tf.version_core ?? tf.version?.tfjs ?? 'unknown'}`, 'info');
+        log(`   Tensors in memory: ${tf.memory().numTensors}`, 'info');
+        return true;
+      } catch (e) {
+        log(`❌ TF backend error: ${e.message}`, 'err');
+        return false;
+      }
+    }
+
+    // ── Face detector ──
+    async function initDetector() {
+      log('Creating face landmarks detector…', 'info');
+      status('loading face model');
+      const before = tf.memory().numTensors;
+      try {
+        const model = faceLandmarksDetection.SupportedModels.MediaPipeFaceMesh;
+        log(`   Model enum: "${model}"`, 'info');
+        log(`   Config: runtime=tfjs, maxFaces=1, refineLandmarks=false`, 'info');
+
+        detector = await faceLandmarksDetection.createDetector(model, {
+          runtime: 'tfjs',
+          maxFaces: 1,
+          refineLandmarks: false,
+        });
+
+        const after = tf.memory().numTensors;
+        log(`✅ Detector created (tensors: ${before} → ${after})`, 'ok');
+        return true;
+      } catch (e) {
+        log(`❌ Detector creation error: ${e.message}`, 'err');
+        log(`   Stack: ${e.stack}`, 'err');
+        return false;
+      }
+    }
+
+    // ── Detect faces ──
+    async function detect(opts = {}) {
+      if (!detector) { log('No detector!', 'err'); return null; }
+      if (videoEl.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
+        log(`⚠ Video readyState=${videoEl.readyState} (need ≥ 2)`, 'warn');
+        return null;
+      }
+
+      const tensorsBefore = tf.memory().numTensors;
+      const t0 = performance.now();
+
+      try {
+        const faces = await detector.estimateFaces(videoEl, {
+          flipHorizontal: false,
+          ...opts,
+        });
+        const elapsed = (performance.now() - t0).toFixed(1);
+        const tensorsAfter = tf.memory().numTensors;
+
+        log(`   estimateFaces returned ${faces.length} face(s) in ${elapsed}ms  (tensors: ${tensorsBefore}→${tensorsAfter})`, faces.length > 0 ? 'ok' : 'warn');
+
+        if (faces.length > 0) {
+          const f = faces[0];
+          log(`   Face[0] keypoints: ${f.keypoints.length}`, 'info');
+          if (f.keypoints.length > 0) {
+            const kp0 = f.keypoints[0];
+            log(`     kp[0]: x=${kp0.x?.toFixed(1)} y=${kp0.y?.toFixed(1)} name="${kp0.name}"`, 'info');
+          }
+          if (f.box) {
+            log(`   box: x=${f.box.xMin?.toFixed(1)} y=${f.box.yMin?.toFixed(1)} w=${f.box.width?.toFixed(1)} h=${f.box.height?.toFixed(1)}`, 'info');
+          }
+
+          // Draw bounding box on overlay
+          drawOverlay(f);
+          // Draw 48×48 crop
+          drawCrop(f);
+        }
+        return faces;
+      } catch (e) {
+        log(`❌ estimateFaces error: ${e.message}`, 'err');
+        log(`   Stack: ${e.stack}`, 'err');
+        return null;
+      }
+    }
+
+    // ── Draw overlay ──
+    function drawOverlay(face) {
+      const ctx = overlay.getContext('2d');
+      ctx.clearRect(0, 0, overlay.width, overlay.height);
+      // mirror video onto overlay
+      ctx.drawImage(videoEl, 0, 0, overlay.width, overlay.height);
+
+      // compute box from keypoints
+      let xMin = Infinity, yMin = Infinity, xMax = -Infinity, yMax = -Infinity;
+      for (const kp of face.keypoints) {
+        if (kp.x < xMin) xMin = kp.x;
+        if (kp.y < yMin) yMin = kp.y;
+        if (kp.x > xMax) xMax = kp.x;
+        if (kp.y > yMax) yMax = kp.y;
+      }
+
+      // Scale keypoints to overlay canvas size
+      const sx = overlay.width / videoEl.videoWidth;
+      const sy = overlay.height / videoEl.videoHeight;
+
+      // Draw keypoints
+      ctx.fillStyle = '#5df2d6';
+      for (const kp of face.keypoints) {
+        ctx.fillRect(kp.x * sx - 1, kp.y * sy - 1, 2, 2);
+      }
+
+      // Draw bounding box
+      ctx.strokeStyle = '#ffd166';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(xMin * sx, yMin * sy, (xMax - xMin) * sx, (yMax - yMin) * sy);
+    }
+
+    // ── Draw 48×48 face crop ──
+    function drawCrop(face) {
+      let xMin = Infinity, yMin = Infinity, xMax = -Infinity, yMax = -Infinity;
+      for (const kp of face.keypoints) {
+        if (kp.x < xMin) xMin = kp.x;
+        if (kp.y < yMin) yMin = kp.y;
+        if (kp.x > xMax) xMax = kp.x;
+        if (kp.y > yMax) yMax = kp.y;
+      }
+      const pad = Math.max(xMax - xMin, yMax - yMin) * 0.1;
+      xMin = Math.max(0, xMin - pad);
+      yMin = Math.max(0, yMin - pad);
+      xMax = Math.min(videoEl.videoWidth, xMax + pad);
+      yMax = Math.min(videoEl.videoHeight, yMax + pad);
+
+      const ctx = cropCanvas.getContext('2d');
+      ctx.clearRect(0, 0, 48, 48);
+      ctx.drawImage(videoEl, xMin, yMin, xMax - xMin, yMax - yMin, 0, 0, 48, 48);
+    }
+
+    // ── Full test ──
+    async function runFullTest() {
+      btnFull.disabled = true;
+      log('═══════ FULL TEST START ═══════', 'ok');
+
+      const cam = await startCamera();
+      if (!cam) { btnFull.disabled = false; return; }
+
+      const backend = await initBackend();
+      if (!backend) { btnFull.disabled = false; return; }
+
+      const det = await initDetector();
+      if (!det) { btnFull.disabled = false; return; }
+
+      // Wait a moment for camera to deliver frames
+      log('Waiting 500ms for camera frames…', 'info');
+      await new Promise(r => setTimeout(r, 500));
+      log(`   readyState after wait: ${videoEl.readyState}`, 'info');
+
+      // Run 5 detections
+      for (let i = 1; i <= 5; i++) {
+        log(`── Attempt ${i}/5 ──`, 'info');
+        await detect();
+        await new Promise(r => setTimeout(r, 300));
+      }
+
+      // Also try with staticImageMode
+      log('── Attempt with staticImageMode=true ──', 'info');
+      await detect({ staticImageMode: true });
+
+      log('═══════ FULL TEST DONE ═══════', 'ok');
+      log(`Final tensor count: ${tf.memory().numTensors}`, 'info');
+      status('done');
+      btnSingle.disabled = false;
+      btnRaw.disabled = false;
+      btnFull.disabled = false;
+    }
+
+    // ── Single detect ──
+    async function singleDetect() {
+      log('── Single detect ──', 'info');
+      await detect();
+    }
+
+    // ── Raw estimateFaces with staticImageMode ──
+    async function rawEstimate() {
+      log('── Raw estimateFaces (staticImageMode=true) ──', 'info');
+      await detect({ staticImageMode: true });
+    }
+
+    // ── Button handlers ──
+    btnFull.addEventListener('click', runFullTest);
+    btnFullEmo.addEventListener('click', runFullTestWithEmotion);
+    btnSingle.addEventListener('click', singleDetect);
+    btnRaw.addEventListener('click', rawEstimate);
+    btnClear.addEventListener('click', () => { logEl.innerHTML = ''; });
+
+    // ── Full test WITH emotion model (mirrors main app init order) ──
+    async function runFullTestWithEmotion() {
+      btnFullEmo.disabled = true;
+      log('═══════ FULL TEST + EMOTION MODEL (main app order) ═══════', 'ok');
+
+      // Step 1: TF backend
+      const backend = await initBackend();
+      if (!backend) { btnFullEmo.disabled = false; return; }
+
+      // Step 2: Face detector
+      const det = await initDetector();
+      if (!det) { btnFullEmo.disabled = false; return; }
+
+      // Step 3: Load emotion model (THIS is what the main app does between detector creation and first detect)
+      log('Loading emotion model (same as main app)…', 'info');
+      const emoBefore = tf.memory().numTensors;
+      try {
+        await loadEmotionModel();
+        const emoAfter = tf.memory().numTensors;
+        log(`✅ Emotion model loaded (tensors: ${emoBefore} → ${emoAfter})`, 'ok');
+      } catch (e) {
+        log(`❌ Emotion model error: ${e.message}`, 'err');
+      }
+
+      // Step 4: Camera
+      const cam = await startCamera();
+      if (!cam) { btnFullEmo.disabled = false; return; }
+
+      // Wait for frames
+      log('Waiting 500ms for camera frames…', 'info');
+      await new Promise(r => setTimeout(r, 500));
+      log(`   readyState after wait: ${videoEl.readyState}`, 'info');
+
+      // Step 5: Run detections
+      for (let i = 1; i <= 5; i++) {
+        log(`── Attempt ${i}/5 ──`, 'info');
+        await detect();
+        await new Promise(r => setTimeout(r, 300));
+      }
+
+      log('── Attempt with staticImageMode=true ──', 'info');
+      await detect({ staticImageMode: true });
+
+      log('═══════ FULL TEST + EMOTION DONE ═══════', 'ok');
+      log(`Final tensor count: ${tf.memory().numTensors}`, 'info');
+      status('done');
+      btnSingle.disabled = false;
+      btnRaw.disabled = false;
+      btnFullEmo.disabled = false;
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>EdgePresence – Face Detection Debug</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; }
+    body { background: #111; color: #eee; font-family: monospace; padding: 16px; }
+    h1 { font-size: 18px; margin-bottom: 12px; }
+    #log { background: #1a1a2e; padding: 12px; border-radius: 8px; height: 340px; overflow-y: auto; font-size: 13px; line-height: 1.5; white-space: pre-wrap; }
+    .ok { color: #5df2d6; } .err { color: #ff6b6b; } .warn { color: #ffd166; } .info { color: #7eb8da; }
+    video { border-radius: 8px; background: #000; }
+    canvas { border-radius: 8px; border: 1px solid #333; }
+    .row { display: flex; gap: 16px; margin: 12px 0; flex-wrap: wrap; }
+    button { padding: 8px 16px; border: none; border-radius: 6px; background: #5df2d6; color: #111; font-weight: bold; cursor: pointer; font-size: 14px; }
+    button:hover { opacity: 0.85; }
+    #status { padding: 8px 12px; border-radius: 6px; background: #222; margin-top: 8px; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <h1>🔍 EdgePresence Face Detection Debugger</h1>
+  <div class="row">
+    <div>
+      <h3>Camera Feed</h3>
+      <video id="video" width="320" height="240" muted playsinline></video>
+    </div>
+    <div>
+      <h3>Canvas (face region crop)</h3>
+      <canvas id="crop" width="48" height="48" style="width:96px;height:96px;image-rendering:pixelated;"></canvas>
+    </div>
+  </div>
+  <div class="row">
+    <button onclick="runFullTest()">▶ Run Full Test</button>
+    <button onclick="runSingleDetect()">🔎 Single Face Detect</button>
+    <button onclick="testRawEstimate()">🧪 Raw estimateFaces</button>
+  </div>
+  <div id="status">Status: idle</div>
+  <h3 style="margin-top:12px;">Log</h3>
+  <div id="log"></div>
+
+<script type="module">
+  // ── ESM imports from esm.sh (proper browser-compatible ES modules) ──
+  import * as tf from 'https://esm.sh/@tensorflow/tfjs@4.22.0';
+  import * as faceLandmarksDetection from 'https://esm.sh/@tensorflow-models/face-landmarks-detection@1.0.6?deps=@tensorflow/tfjs@4.22.0,@tensorflow-models/face-detection@1.0.4';
+
+  const logEl = document.getElementById('log');
+  const statusEl = document.getElementById('status');
+  const videoEl = document.getElementById('video');
+  const cropCanvas = document.getElementById('crop');
+
+  function log(msg, cls = 'info') {
+    const line = document.createElement('div');
+    line.className = cls;
+    line.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+    logEl.appendChild(line);
+    logEl.scrollTop = logEl.scrollHeight;
+    console.log(msg);
+  }
+  function status(msg) { statusEl.textContent = 'Status: ' + msg; }
+
+  let detector = null;
+
+  // ── Camera ──
+  async function startCamera() {
+    log('Requesting camera…');
+    status('requesting camera');
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' }
+      });
+      videoEl.srcObject = stream;
+      await new Promise(r => { videoEl.onloadedmetadata = r; });
+      await videoEl.play();
+      log(`✓ Camera active: ${videoEl.videoWidth}×${videoEl.videoHeight}`, 'ok');
+      log(`  readyState = ${videoEl.readyState}  (need ≥ 2)`, videoEl.readyState >= 2 ? 'ok' : 'warn');
+      return true;
+    } catch (e) {
+      log(`✗ Camera error: ${e.message}`, 'err');
+      return false;
+    }
+  }
+
+  // ── Load TFJS + create detector ──
+  async function loadModels() {
+    status('initializing TensorFlow.js');
+    log(`  tf version: ${tf.version.tfjs}`, 'ok');
+
+    status('setting WebGL backend');
+    await tf.setBackend('webgl');
+    await tf.ready();
+    log(`✓ Backend: ${tf.getBackend()}`, 'ok');
+    log(`  Tensors after init: ${tf.memory().numTensors}`);
+
+    log(`  faceLandmarksDetection exports: ${Object.keys(faceLandmarksDetection).join(', ')}`);
+    log(`  SupportedModels: ${JSON.stringify(faceLandmarksDetection.SupportedModels)}`);
+
+    status('creating face detector');
+    const modelEnum = faceLandmarksDetection.SupportedModels.MediaPipeFaceMesh;
+    log(`  Using model enum = "${modelEnum}"`);
+
+    const t0 = performance.now();
+    try {
+      detector = await faceLandmarksDetection.createDetector(modelEnum, {
+        runtime: 'tfjs',
+        maxFaces: 1,
+        refineLandmarks: false,
+      });
+      log(`✓ Detector created in ${(performance.now() - t0).toFixed(0)}ms`, 'ok');
+      log(`  Tensors after createDetector: ${tf.memory().numTensors}`);
+    } catch (e) {
+      log(`✗ createDetector failed: ${e.message}`, 'err');
+      log(`  Stack: ${e.stack}`, 'err');
+      return false;
+    }
+    return true;
+  }
+
+  // ── Single face detection ──
+  async function singleDetect(opts = {}) {
+    if (!detector) { log('Detector not ready', 'err'); return null; }
+    if (videoEl.readyState < 2) { log(`Video not ready (readyState=${videoEl.readyState})`, 'warn'); return null; }
+
+    const tensorsBefore = tf.memory().numTensors;
+    const t0 = performance.now();
+
+    let faces;
+    try {
+      faces = await detector.estimateFaces(videoEl, { flipHorizontal: false, ...opts });
+    } catch (e) {
+      log(`✗ estimateFaces threw: ${e.message}`, 'err');
+      log(`  Stack: ${e.stack}`, 'err');
+      return null;
+    }
+
+    const elapsed = (performance.now() - t0).toFixed(0);
+    const tensorsAfter = tf.memory().numTensors;
+    const leaked = tensorsAfter - tensorsBefore;
+
+    log(`estimateFaces → ${faces.length} face(s) in ${elapsed}ms  (tensors: ${tensorsBefore}→${tensorsAfter}, Δ${leaked})`,
+        faces.length > 0 ? 'ok' : 'warn');
+
+    if (faces.length > 0) {
+      const f = faces[0];
+      log(`  keypoints: ${f.keypoints.length}`);
+      log(`  keypoint[0]: x=${f.keypoints[0].x.toFixed(1)}, y=${f.keypoints[0].y.toFixed(1)}`);
+      log(`  box: ${JSON.stringify(f.box)}`, 'info');
+      if (f.score !== undefined) log(`  score: ${f.score}`);
+
+      // Compute bounds from keypoints
+      let xMin=Infinity, yMin=Infinity, xMax=-Infinity, yMax=-Infinity;
+      for (const kp of f.keypoints) {
+        if (kp.x < xMin) xMin = kp.x;
+        if (kp.y < yMin) yMin = kp.y;
+        if (kp.x > xMax) xMax = kp.x;
+        if (kp.y > yMax) yMax = kp.y;
+      }
+      log(`  bounds from kps: x[${xMin.toFixed(0)}..${xMax.toFixed(0)}] y[${yMin.toFixed(0)}..${yMax.toFixed(0)}]`);
+
+      // Draw crop
+      const ctx = cropCanvas.getContext('2d');
+      const pad = Math.max(xMax-xMin, yMax-yMin) * 0.1;
+      ctx.drawImage(videoEl,
+        Math.max(0,xMin-pad), Math.max(0,yMin-pad), (xMax-xMin)+2*pad, (yMax-yMin)+2*pad,
+        0, 0, 48, 48);
+    }
+    return faces;
+  }
+
+  // ── Expose to buttons ──
+  window.runFullTest = async function() {
+    logEl.innerHTML = '';
+    log('═══ Full diagnostic test ═══');
+    const cam = await startCamera();
+    if (!cam) return;
+    const ok = await loadModels();
+    if (!ok) return;
+
+    // Wait for video frames
+    log('Waiting 500ms for video frames…');
+    await new Promise(r => setTimeout(r, 500));
+    log(`Video readyState = ${videoEl.readyState}`);
+
+    // Run 5 detection attempts
+    for (let i = 1; i <= 5; i++) {
+      log(`\n── Detection attempt ${i}/5 ──`);
+      status(`detecting ${i}/5`);
+      await singleDetect();
+      await new Promise(r => setTimeout(r, 300));
+    }
+    status('done');
+    log('\n═══ Test complete ═══', 'ok');
+  };
+
+  window.runSingleDetect = async function() {
+    if (!detector) { log('Run Full Test first!', 'err'); return; }
+    log('\n── Single detect ──');
+    await singleDetect();
+  };
+
+  window.testRawEstimate = async function() {
+    if (!detector) { log('Run Full Test first!', 'err'); return; }
+    log('\n── Raw estimateFaces (staticImageMode=true) ──');
+    await singleDetect({ staticImageMode: true });
+  };
+
+  log('Debug page loaded. Click "▶ Run Full Test" to start.');
+  log('(Loading ESM modules from esm.sh — first load may take 10-20s)…', 'warn');
+</script>
+</body>
+</html>

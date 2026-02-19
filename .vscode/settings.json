@@ -1,0 +1,10 @@
+{
+  // Ensure Pylance resolves training dependencies (numpy/tensorflow/Pillow)
+  // using the same interpreter you run from the terminal.
+    // Use the workspace virtual environment for Python tooling (Pylance, tests, scripts).
+    "python.defaultInterpreterPath": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
+  "typescript.tsserver.watchOptions": {
+    "excludeDirectories": ["**/node_modules"]
+  },
+  "python-envs.pythonProjects": []
+}
